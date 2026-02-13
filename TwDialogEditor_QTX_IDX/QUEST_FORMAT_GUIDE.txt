@@ -1,0 +1,514 @@
+# Two Worlds 1 — Quest Format Guide
+
+Technical reference for the three quest data formats used in Two Worlds 1: IDX (SOAP-XML), QTX (plaintext), and SHF (.NET binary).
+
+## Overview
+
+Two Worlds 1 uses WhizzEdit as its quest/dialog authoring tool. WhizzEdit stores data internally as .shf (binary), can export to .idx (XML), and compiles to .qtx (game format) plus .lan (language/text). All three formats describe the same quest system but at different levels of detail.
+
+## IDX Format (SOAP-XML)
+
+The `.idx` file is a SOAP-XML export from WhizzEdit containing the complete quest database: quests, NPCs, locations, dialog trees, rewards, actions, and all metadata.
+
+### Structure
+
+```xml
+<SOAP-ENV:Envelope xmlns:...>
+  <SOAP-ENV:Body>
+    <a1:NodeSharedFolder id="ref-1">
+      <name id="ref-2">Quests</name>
+      <nodes href="#ref-3"/>
+    </a1:NodeSharedFolder>
+    ...
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+```
+
+The file uses .NET SOAP serialization with `href`/`id` cross-references. All objects are serialized as `a1:ClassName` elements within the SOAP body.
+
+### Node Types
+
+**NodeSharedFolder** — Top-level container (root: "Quests")
+```
+Fields: name, nodes
+```
+
+**NodeGroup** — Region/category groups (ASHOS, BORDER, CATHALON, etc.)
+```
+Fields: iid, name, tid, text, nodes
+```
+
+**NodeQuest** — Individual quest definition
+```
+Fields:
+  iid              — Internal ID (string, e.g. "Q_4")
+  name             — Quest name/key
+  tid              — Translation ID (maps to .lan key)
+  text             — Description text
+  nodes            — Child nodes (sub-types below)
+  activation       — Activation type enum
+  group            — Region group name
+  guild            — Associated guild
+  min_reputation   — Minimum reputation required
+  add_to_quest_log — Boolean
+  can_be_failed    — Boolean
+  notes            — Developer notes (design documentation)
+  quest_state      — Current state enum
+```
+
+**NodeQuestGiver** — Quest giver NPC assignment
+```
+Fields:
+  parent    — Parent quest reference
+  type      — Giver type enum (ACTIVE, PASSIVE)
+  npc       — NPC ID reference
+  marker    — Map marker
+  sector    — Map grid sector
+  range     — Activation range
+  type_ex   — Extended type
+  remove_time — When to remove giver
+```
+
+**NodeQuestFC** — Finishing Condition
+```
+Fields:
+  parent    — Parent quest reference
+  type      — FC type enum
+  npc       — Target NPC
+  location  — Target location
+  party     — Party requirement
+  marker    — Map marker
+  sector    — Map sector
+  range     — Detection range
+  object    — Required object
+  count     — Required count
+```
+
+**NodeQuestAOQ** — Activation on Quest (quest chain trigger)
+```
+Fields:
+  parent    — Parent quest reference
+  type      — Activation type enum
+  time      — Action time enum
+  quest     — Triggering quest reference
+```
+
+**NodeQuestAction** — Quest action/event
+```
+Fields:
+  parent          — Parent quest reference
+  type            — Action type enum
+  time            — Action time
+  npc             — Affected NPC
+  location        — Target location
+  party           — Party
+  marker          — Map marker
+  sector          — Map sector
+  angle           — Angle type
+  range           — Effect range
+  object          — Target object
+  count           — Count
+  dialog          — Dialog reference
+  party_1, party_2 — Party factions
+  relation        — Relation type
+  container       — Container reference
+  enemy           — Enemy reference
+  quantity        — Quantity type
+  exp             — Experience amount
+  exp_level       — Experience level
+  effect          — Effect reference
+  x, y            — World coordinates
+  multiplayer_map — MP map flag
+```
+
+**NodeQuestReward** — Quest completion reward
+```
+Fields:
+  parent       — Parent quest reference
+  type         — Reward type enum
+  time         — When to grant
+  quantity     — Quantity type
+  count        — Amount
+  impact       — Reputation impact
+  impact_range — Impact range
+  object       — Reward object
+  guild        — Guild reputation target
+```
+
+**NodeQuestDialog** — Dialog tree container
+```
+Fields:
+  parent                 — Parent quest
+  nodes                  — Dialog items (NodeQuestDialogItem list)
+  type                   — Dialog type
+  lector_npc             — Default speaking NPC
+  active_start           — Active from state
+  include_quest_failed   — Include if quest failed
+  include_low_reputation — Include if low reputation
+```
+
+**NodeQuestDialogItem** — Single dialog entry
+```
+Fields: type, text_type, lector_type, sound_file_iid
+```
+
+**NodeQuestDialogText** — Dialog text content
+```
+Fields:
+  iid           — Internal ID
+  name          — Display name
+  parent        — Parent dialog item
+  tid           — Translation ID (key into .lan)
+  tiid          — Translation internal ID
+  text          — Fallback text (if not in .lan)
+  camera        — Camera angle preset
+  anim          — Character animation
+  flags         — Dialog flags
+  type          — Dialog type enum
+  next_type     — Next dialog type
+  lector_type   — Speaker type
+  sound_file_iid — Voice acting sound cue
+```
+
+**NodeQuestText** — Quest journal text
+```
+Fields:
+  iid    — Internal ID
+  parent — Parent quest
+  tid    — Translation ID
+  tiid   — Translation internal ID
+  text   — Quest description text
+```
+
+### Enum Types
+
+The IDX file uses WhizzEdit.Data.Enums namespace for typed values:
+
+```
+QuestActivationType    — How quest activates
+QuestGiverType         — ACTIVE, PASSIVE
+QuestGiverRemoveTime   — When giver disappears
+QuestFinishingConditionType — How quest completes
+QuestActionType        — Action type
+QuestActionTime        — When action triggers
+QuestRewardType        — Reward category
+QuestDialogType        — Dialog category
+QuestDialogItemType    — Dialog entry type
+QuestDialogItemTextType — Text type
+QuestDialogItemLectorType — Speaker type
+QuantityType           — Count type
+AngleType              — Angle preset
+RelationType           — Faction relation
+ExpType                — Experience type
+QuestStateKind         — Quest state
+```
+
+### Statistics (TwoWorldsQuests.idx)
+
+```
+File size:     ~8 MB
+Quests:        ~500
+Characters:    ~347
+Dialog entries: 6,942
+Groups:        ~40 region groups
+```
+
+---
+
+## QTX Format (Plaintext)
+
+The `.qtx` file is the compiled quest logic format read directly by the game engine. It contains quest definitions, NPC data, and location data in a structured plaintext format, but no dialog text (dialogs are in the .lan file).
+
+### General Rules
+
+- Keywords are case-sensitive: `NPC`, `LOCATION`, `QUEST`
+- Indentation: 2 spaces for sub-blocks
+- Blocks end with `END`
+- Comments not supported
+- Empty lines are ignored
+
+### NPC Block
+
+```
+NPC npc_id
+  field1 value1
+  field2 value2
+  ...
+  QUEST quest_sub_type
+    sub_field1 value1
+    ...
+  END
+END
+```
+
+**NPC Fields** (12 fields, order matters):
+
+| # | Field | Values | Description |
+|---|-------|--------|-------------|
+| 1 | SECTOR | string | Map grid reference (e.g. "F_01") |
+| 2 | field_2 | number | Unknown (possibly spawn flags) |
+| 3 | field_3 | number | Unknown |
+| 4 | MAP_GRID | string | Map grid position |
+| 5 | field_5 | number | Unknown |
+| 6 | field_6 | number | Unknown |
+| 7 | FACTION | string | NPC faction |
+| 8 | field_8 | number | Unknown |
+| 9 | SIZE | SMALL/MEDIUM/number | NPC size or numeric value |
+| 10 | field_10 | number | Unknown |
+| 11 | OBJECTS | True/False [items...] | Has objects + optional item list |
+| 12 | field_12 | number | Unknown |
+
+**OBJECTS field detail:**
+```
+OBJECTS False              — No items
+OBJECTS True               — Has objects, no drops
+OBJECTS True QITEM_221 QITEM_221 MAGIC_POISONDART  — Has specific drops
+```
+
+Items after `True` are space-separated IDs representing the NPC's drop inventory. Duplicate IDs mean multiple copies of that item.
+
+### QUEST Sub-Types (within NPC)
+
+**GIVER** — Quest assignment
+```
+QUEST GIVER quest_state
+  quest_id
+  activation_type
+  field_3
+  field_4
+  ...
+END
+```
+
+`quest_state`: ACTIVE or PASSIVE
+
+**FC** (Finishing Condition) — Quest completion trigger
+```
+QUEST FC
+  quest_id
+  fc_type
+  ...
+END
+```
+
+**AOQ** (Activation on Quest) — Quest chain link
+```
+QUEST AOQ
+  quest_id
+  activation_type
+  action_time
+  trigger_quest_id
+END
+```
+
+**ACTION** — Quest event/script
+```
+QUEST ACTION
+  quest_id
+  action_type
+  action_time
+  ...  (up to 25 fields)
+END
+```
+
+**REWARD** — Quest completion reward
+```
+QUEST REWARD
+  quest_id
+  reward_type
+  action_time
+  quantity_type
+  count
+  impact
+  impact_range
+  object
+  guild
+END
+```
+
+### LOCATION Block
+
+```
+LOCATION location_id
+  field1 value1
+  field2 value2
+  ...
+END
+```
+
+**Location Fields** (6 fields):
+
+| # | Field | Description |
+|---|-------|-------------|
+| 1 | SECTOR | Map grid reference |
+| 2 | field_2 | Unknown |
+| 3 | field_3 | Unknown |
+| 4 | MAP_GRID | Map position |
+| 5 | field_5 | Unknown |
+| 6 | field_6 | Unknown |
+
+### QUEST Block (standalone)
+
+```
+QUEST quest_id
+  field1 value1
+  ...
+END
+```
+
+Top-level QUEST blocks define quest metadata separate from NPC assignments.
+
+### Example
+
+```
+NPC NPC_223
+  F_01
+  0
+  0
+  F_01
+  0
+  0
+  HUMAN
+  0
+  MEDIUM
+  0
+  OBJECTS True QITEM_221 QITEM_221 QITEM_221 QITEM_221 QITEM_221 QITEM_221 QITEM_221 QITEM_221 QITEM_221 QITEM_221
+  0
+  QUEST GIVER ACTIVE
+    Q_42
+    ON_QUEST_TAKEN
+    0
+    0
+    0
+  END
+END
+```
+
+### Statistics (TwoWorldsQuests.qtx)
+
+```
+File size:     ~281 KB
+NPCs:          ~250
+Locations:     ~50
+Quest entries: ~500
+```
+
+---
+
+## SHF Format (.NET BinaryFormatter)
+
+The `.shf` file is WhizzEdit's native binary project format. It uses .NET's `BinaryFormatter` serialization to store the same node tree structure as the IDX format.
+
+### Overview
+
+- Binary serialization of `WhizzEdit.Data.*` classes
+- One .shf file per WhizzEdit project folder
+- Filename pattern: `ProjectName-FolderName.shf`
+- Same class hierarchy as IDX (NodeQuest, NodeQuestDialog, etc.)
+
+### Binary Structure
+
+The file follows the .NET BinaryFormatter specification:
+
+```
+[SerializationHeaderRecord]  — Magic byte 0x00 + version info
+[BinaryLibrary]              — Assembly references ("WhizzEdit, Version=1.0.0.0")
+[ClassWithMembersAndTypes]   — Class definitions with field names and types
+[BinaryObjectString]         — String values (record type 0x06)
+[MemberReference]            — Object cross-references
+[ObjectNull]                 — Null values
+[MessageEnd]                 — End marker (0x0B)
+```
+
+### Record Type 0x06: BinaryObjectString
+
+The primary data carrier. Format:
+```
+Byte    Description
+0       Record type (0x06)
+1-4     Object ID (uint32, little-endian)
+5+      Length-prefixed string (7-bit encoded length + UTF-8 bytes)
+```
+
+**7-bit encoded integer:** Each byte contributes 7 bits. High bit (0x80) indicates more bytes follow.
+
+### Extractable Data
+
+String extraction from BinaryObjectString records yields:
+
+| Category | Count | Examples |
+|----------|-------|---------|
+| Quest IDs | ~333 | Q_1, Q_4, Q_42 |
+| NPC references | ~200 | NPC_223, NPC_GUARD_01 |
+| Dialog texts | ~4,838 | Full dialog lines in English |
+| Group names | ~40 | ASHOS, BORDER, CATHALON |
+| Quest items | ~50 | QITEM_221, MAGIC_POISONDART |
+| Enemy types | ~30 | GOBLIN, ORC_WARRIOR |
+| Locations | ~50 | LOC_CATHALON, LOC_ASHOS |
+
+### Class Definitions Found
+
+Record type 0x05 (ClassWithMembersAndTypes) reveals the schema:
+
+```
+NodeSharedFolder:    name, nodes
+NodeGroup:           iid, name, tid, text, nodes
+NodeQuest:           iid, name, tid, text, nodes, activation, group, guild,
+                     min_reputation, add_to_quest_log, can_be_failed, notes, quest_state
+NodeQuestGiver:      parent, type, npc, marker, sector, range, type_ex, remove_time
+NodeQuestFC:         parent, type, npc, location, party, marker, sector, range, object, count
+NodeQuestAOQ:        parent, type, time, quest
+NodeQuestAction:     parent, type, time, npc, location, party, marker, sector, angle, range,
+                     object, count, dialog, party_1, party_2, relation, container, enemy,
+                     quantity, exp, exp_level, effect, x, y, multiplayer_map
+NodeQuestReward:     parent, type, time, quantity, count, impact, impact_range, object, guild
+NodeQuestDialog:     parent, nodes, type, lector_npc, active_start, include_quest_failed,
+                     include_low_reputation
+NodeQuestDialogItem: type, text_type, lector_type
+NodeQuestDialogText: iid, name, parent, tid, tiid, text, camera, anim, flags, type,
+                     next_type, lector_type, sound_file_iid
+NodeQuestText:       iid, parent, tid, tiid, text
+```
+
+### Limitations
+
+- Full BinaryFormatter parsing is complex (object references, arrays, enums, null handling)
+- The Quest Editor uses string extraction rather than full deserialization
+- Read-only — writing BinaryFormatter data requires the complete .NET type system
+- If .idx is available, prefer it over .shf (same data, easier to parse)
+
+### Known SHF Files
+
+```
+TwoWorldsQuests-Quests.shf        — 1.3 MB, quest definitions
+TwoWorldsQuests-Casual Talks.shf  — 133 KB, NPC idle dialog
+TwoWorldsQuests-Characters.shf    — 63 KB, character definitions
+TwoWorldsQuests-Common Data.shf   — 24 KB, shared data
+TwoWorldsQuests-Ingame Texts.shf  — 224 KB, UI/system text
+TwoWorldsQuests-Locations.shf     — 37 KB, location definitions
+TwoWorldsQuests-Objects.shf       — 8 KB, object definitions
+TwoWorldsQuests-Rumors.shf        — 292 KB, rumor dialog
+TwoWorldsQuests-Update 1.shf      — 133 KB, patch 1 content
+```
+
+---
+
+## Format Relationship Diagram
+
+```
+WhizzEdit (Development Tool)
+│
+├── .shf  ←── Native project format (binary, per folder)
+│
+├── .idx  ←── XML export (SOAP-XML, complete, one file)
+│
+└── Compile
+     ├── .qtx  ←── Quest logic (plaintext, no dialogs)
+     └── .lan  ←── Language/text (binary, all strings)
+                    ↑
+                    └── See LAN_FORMAT_GUIDE.md
+```
+
+## Credits
+
+Format documentation based on reverse engineering of SDK files and [BugLord's QTX specification](http://www.buglord.net/).

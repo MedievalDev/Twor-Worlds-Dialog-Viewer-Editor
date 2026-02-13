@@ -1,0 +1,181 @@
+# Two Worlds 1 — LAN Format Guide
+
+Technical reference for the `.lan` binary language file format used in Two Worlds 1.
+
+## Overview
+
+LAN files contain all localized text for the game: quest names, dialog lines, item descriptions, NPC names, tooltips, and more. The file has three sequential data sections: translations, aliases, and quest dialog trees.
+
+## File Structure
+
+All multi-byte values are little-endian. Strings use two formats: ASCII (keys) and UTF-16-LE (values).
+
+```
+[Header]
+[Translation Entries]
+[Alias Entries]
+[Quest Dialog Entries]
+```
+
+## Header
+
+```
+Offset  Size  Description
+0       4     Magic bytes "LAN\x00" (hex: 4C 41 4E 00)
+4       4     Version (uint32, typically 3)
+8       4     Translation entry count (uint32)
+```
+
+## Translation Entries
+
+Starting at offset 12, repeated `count` times:
+
+```
+Per entry:
+  +0    4     Key length (uint32, byte count)
+  +4    n     Key (ASCII bytes, prefixed with "translate")
+  +n+4  4     Value length (uint32, character count, NOT byte count)
+  +n+8  m×2   Value (UTF-16-LE, m = value length, each char = 2 bytes)
+```
+
+**Key format:** All keys start with the prefix `translate` followed by the actual identifier. For example, `translateQ_4` contains the name of quest 4, and `translateDQ_4_0.FT.AS_1` contains a dialog line.
+
+**Value encoding:** The value length field contains the number of UTF-16 characters, not bytes. Multiply by 2 to get byte count.
+
+### Key Naming Conventions
+
+| Prefix | Category | Example |
+|--------|----------|---------|
+| DQ_xxx_y.STATE_z | Dialog lines | `DQ_4_0.FT.AS_1` (Quest 4, dialog 0, state FT.AS line 1) |
+| Q_xxx | Quest name | `Q_4` → "Ein Lichtstreif..." |
+| Q_xxx_QTD | Quest description (take) | `Q_4_QTD` |
+| Q_xxx_QSD | Quest description (solve) | `Q_4_QSD` |
+| Q_xxx_QCD | Quest description (close) | `Q_4_QCD` |
+| NPCName_xxx | NPC display name | `NPCName_123` |
+| NPC_xxx | NPC reference | `NPC_ORC_WARRIOR` |
+| RUMORS_xxx | Rumor text | `RUMORS_12_1` |
+| TALK_xxx | Casual dialog | `TALK_GUARD_01` |
+| EVENT_xxx | Event text | `EVENT_DRAGON` |
+| CUTSCENE_xxx | Cutscene subtitle | `CUTSCENE_INTRO_1` |
+| ING_xxx | Ingredient name | `ING_HERB_01` |
+| WP_xxx | Weapon name | `WP_SWORD_IRON` |
+| AR_xxx | Armor name | `AR_LEATHER_01` |
+| Skill_xxx | Skill name | `Skill_FIRE_1` |
+| Tip_xxx | Loading tip | `Tip_01` |
+| Net_xxx | Multiplayer text | `Net_LOBBY_01` |
+
+### Dialog State Codes
+
+The STATE portion of dialog keys encodes the dialog type:
+
+| State | Speaker | Description |
+|-------|---------|-------------|
+| FT.AS | NPC | First Talk, Active State — NPC's initial lines |
+| QT | NPC | Quest Talk — NPC quest dialog |
+| CLOSE | Hero | Hero's response/acceptance |
+| QC | Hero | Quest Choice — player picks dialog option |
+| QS | Hero | Quest Solved — player reports completion |
+| QNS | Hero | Quest Not Solved — player hasn't completed yet |
+| AE | NPC/Hero | After Event — post-event dialog |
+
+## Alias Entries
+
+Immediately after the last translation entry:
+
+```
++0    4     Alias count (uint32)
+Per entry:
+  +0    4     Key length (uint32)
+  +4    n     Key (ASCII, with "translate" prefix)
+  +n+4  4     Value length (uint32)
+  +n+8  m     Value (ASCII, with "translate" prefix — points to another key)
+```
+
+Aliases are key→key mappings that redirect one dialog key to another. Used when multiple quest states share the same text. Example: `translateDQ_15_2.CLOSE_1` → `translateDQ_15_1.CLOSE_1` (quest 15 state 2 reuses state 1's hero responses).
+
+## Quest Dialog Entries
+
+After the aliases section:
+
+```
++0    4     Quest count (uint32)
+Per quest:
+  +0    4     Quest ID length (uint32)
+  +4    n     Quest ID (ASCII, with "translate" prefix, e.g. "translateDQ_4")
+  +n+4  4     Dialog count (uint32)
+  +n+8  4     Padding (uint32, always 1)
+  Per dialog:
+    +0    4     Lector NPC ID (int32, 1 = Hero, other = NPC ID)
+    +4    4     Translation ID length (uint32)
+    +8    n     Translation ID (ASCII — key into translations section)
+    +n+8  4     Sound Cue length (uint32)
+    +n+12 m     Sound Cue ID (ASCII, e.g. "CUE_0001_0095")
+    +m+12 4     Next dialog count (uint32)
+    +m+16 4     Next dialog padding (uint32, always 1)
+    +...  k×4   Next dialog indices (int32 array — branching links)
+    +...  4     Flags (uint32, bitmask)
+    +...  4     Camera angle count (uint32)
+    +...  4     Camera angle padding (uint32, always 1)
+    +...  j×4   Camera angle indices (int32 array)
+    +...  4     Animation 1 (uint32)
+    +...  4     Animation 2 (uint32)
+```
+
+### Lector IDs
+
+The lector field identifies who speaks the line. Lector 1 is always the Hero. All other values are NPC IDs that map to `NPCName_xxx` in the translations.
+
+### Sound Cue Format
+
+Sound cue IDs follow the pattern `CUE_XXXX_YYYY` where XXXX is the NPC ID (zero-padded) and YYYY is the line number. These reference the voice acting audio files.
+
+### Next Dialog Links
+
+The next dialogs array contains indices into the same quest's dialog list, creating a branching dialog tree. A dialog with `Next=[3]` means "after this line, go to dialog index 3 in this quest."
+
+### Flags
+
+```
+Bit  Description
+0    Unknown (always set in observed files)
+17   Unknown (always set in observed files)
+```
+
+Common value: `0x00020001` (bits 0 and 17 set).
+
+### Camera Angles
+
+Integer values selecting predefined camera angles for the dialog cutscene:
+
+| Value | Description |
+|-------|-------------|
+| 1 | Close-up NPC |
+| 2 | Medium NPC |
+| 6 | Close-up Hero |
+| 7 | Medium Hero |
+
+### Animations
+
+Two uint32 values selecting character animations during the dialog line. Value 0 = default/idle. Typical values: 8, 9, 10, 16, 17.
+
+## Statistics (TwoWorldsQuests.lan)
+
+```
+File size:          3,310,229 bytes
+Version:            3
+Translation entries: 16,194
+  Dialogs:          6,859
+  Quests:           1,196
+  NPC Names:        500
+  Rumors:           1,290
+  Weapons:          372
+  Armor:            433
+  Other:            3,386+
+Alias entries:      215
+Quest dialog trees: 583
+Quest dialog entries: 9,799
+```
+
+## Credits
+
+Format documentation based on [BugLord's LAN specification](http://www.buglord.net/) and reverse engineering of the Two Worlds SDK files.
